@@ -164,15 +164,22 @@ class Trader:
         <HomeCard title="Welcome!">
           <Text>
             IMC Prosperity 4 Visualizer is a visualizer for{' '}
-            <Anchor href="https://prosperity.imc.com/" target="_blank" rel="noreferrer">
+            <Anchor
+              href="https://prosperity.imc.com/"
+              target="_blank"
+              rel="noreferrer"
+            >
               IMC Prosperity 4
             </Anchor>{' '}
             algorithms. Its source code is available in the{' '}
-            <Anchor href="https://github.com/P-AEL/imc-prosperity-4-visualizer" target="_blank" rel="noreferrer">
+            <Anchor
+              href="https://github.com/P-AEL/imc-prosperity-4-visualizer"
+              target="_blank"
+              rel="noreferrer"
+            >
               P-AEL/imc-prosperity-4-visualizer
             </Anchor>{' '}
-            GitHub repository.
-            Load an algorithm below to get started.
+            GitHub repository. Load an algorithm below to get started.
           </Text>
         </HomeCard>
 
