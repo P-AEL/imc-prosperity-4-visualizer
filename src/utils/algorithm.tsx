@@ -24,6 +24,29 @@ import {
 } from '../models.ts';
 import { authenticatedAxios } from './axios.ts';
 
+interface ServerLogEntry {
+  sandboxLog: string;
+  lambdaLog: string;
+  timestamp: number;
+}
+
+interface ServerTradeHistoryEntry {
+  timestamp: number;
+  buyer: string;
+  seller: string;
+  symbol: string;
+  currency?: string;
+  price: number;
+  quantity: number;
+}
+
+interface ServerLogFile {
+  submissionId: string;
+  activitiesLog: string;
+  logs: ServerLogEntry[];
+  tradeHistory: ServerTradeHistoryEntry[];
+}
+
 export class AlgorithmParseError extends Error {
   public constructor(public readonly node: ReactNode) {
     super('Failed to parse algorithm logs');
@@ -43,21 +66,18 @@ function getColumnValues(columns: string[], indices: number[]): number[] {
   return values;
 }
 
-function getActivityLogs(logLines: string[]): ActivityLogRow[] {
-  const headerIndex = logLines.indexOf('Activities log:');
-  if (headerIndex === -1) {
-    return [];
-  }
-
+function parseActivityLogLines(lines: string[]): ActivityLogRow[] {
   const rows: ActivityLogRow[] = [];
 
-  for (let i = headerIndex + 2; i < logLines.length; i++) {
-    const line = logLines[i];
+  for (const line of lines) {
     if (line === '') {
-      break;
+      continue;
     }
 
     const columns = line.split(';');
+    if (columns.length < 17 || columns[0] === 'day') {
+      continue;
+    }
 
     rows.push({
       day: Number(columns[0]),
@@ -73,6 +93,15 @@ function getActivityLogs(logLines: string[]): ActivityLogRow[] {
   }
 
   return rows;
+}
+
+function getActivityLogs(logLines: string[]): ActivityLogRow[] {
+  const headerIndex = logLines.indexOf('Activities log:');
+  if (headerIndex === -1) {
+    return [];
+  }
+
+  return parseActivityLogLines(logLines.slice(headerIndex + 2));
 }
 
 function decompressListings(compressed: CompressedListing[]): Record<ProsperitySymbol, Listing> {
@@ -250,7 +279,177 @@ function getAlgorithmData(logLines: string[]): AlgorithmDataRow[] {
   return rows;
 }
 
+function getListingDenomination(trades: ServerTradeHistoryEntry[]): string {
+  return trades.find(trade => trade.currency)?.currency ?? 'XIRECS';
+}
+
+function getOrderDepth(row: ActivityLogRow): OrderDepth {
+  const buyOrders: Record<number, number> = {};
+  const sellOrders: Record<number, number> = {};
+
+  row.bidPrices.forEach((price, index) => {
+    buyOrders[price] = row.bidVolumes[index];
+  });
+
+  row.askPrices.forEach((price, index) => {
+    sellOrders[price] = row.askVolumes[index];
+  });
+
+  return { buyOrders, sellOrders };
+}
+
+function getPositionsFromLambdaLog(lambdaLog: string): Record<Product, number> {
+  const positions: Record<Product, number> = {};
+
+  for (const line of lambdaLog.split('\n')) {
+    const match = /^(\S+)\s+pos=(-?\d+(?:\.\d+)?)/.exec(line.trim());
+    if (match === null) {
+      continue;
+    }
+
+    positions[match[1]] = Number(match[2]);
+  }
+
+  return positions;
+}
+
+function getTradesByTimestamp(trades: ServerTradeHistoryEntry[]): Map<number, ServerTradeHistoryEntry[]> {
+  const tradesByTimestamp = new Map<number, ServerTradeHistoryEntry[]>();
+
+  for (const trade of trades) {
+    const existing = tradesByTimestamp.get(trade.timestamp);
+    if (existing === undefined) {
+      tradesByTimestamp.set(trade.timestamp, [trade]);
+    } else {
+      existing.push(trade);
+    }
+  }
+
+  return tradesByTimestamp;
+}
+
+function groupTrades(
+  trades: ServerTradeHistoryEntry[],
+  predicate: (trade: ServerTradeHistoryEntry) => boolean,
+): Record<ProsperitySymbol, Trade[]> {
+  const grouped: Record<ProsperitySymbol, Trade[]> = {};
+
+  for (const trade of trades) {
+    if (!predicate(trade)) {
+      continue;
+    }
+
+    if (grouped[trade.symbol] === undefined) {
+      grouped[trade.symbol] = [];
+    }
+
+    grouped[trade.symbol].push({
+      symbol: trade.symbol,
+      price: trade.price,
+      quantity: trade.quantity,
+      buyer: trade.buyer,
+      seller: trade.seller,
+      timestamp: trade.timestamp,
+    });
+  }
+
+  return grouped;
+}
+
+function parseJsonAlgorithmLogs(logs: string): Algorithm | null {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(logs);
+  } catch {
+    return null;
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('activitiesLog' in parsed) ||
+    !('logs' in parsed) ||
+    !('tradeHistory' in parsed)
+  ) {
+    return null;
+  }
+
+  const serverLogFile = parsed as ServerLogFile;
+  const activityLogs = parseActivityLogLines(serverLogFile.activitiesLog.trim().split(/\r?\n/));
+  const activityRowsByTimestamp = new Map<number, ActivityLogRow[]>();
+
+  for (const row of activityLogs) {
+    const existing = activityRowsByTimestamp.get(row.timestamp);
+    if (existing === undefined) {
+      activityRowsByTimestamp.set(row.timestamp, [row]);
+    } else {
+      existing.push(row);
+    }
+  }
+
+  const tradesByTimestamp = getTradesByTimestamp(serverLogFile.tradeHistory);
+  const denomination = getListingDenomination(serverLogFile.tradeHistory);
+
+  const data = serverLogFile.logs.map<AlgorithmDataRow>(logRow => {
+    const rowsForTimestamp = activityRowsByTimestamp.get(logRow.timestamp) ?? [];
+    const tradesForTimestamp = tradesByTimestamp.get(logRow.timestamp) ?? [];
+
+    const listings: Record<ProsperitySymbol, Listing> = {};
+    const orderDepths: Record<ProsperitySymbol, OrderDepth> = {};
+
+    for (const row of rowsForTimestamp) {
+      listings[row.product] = {
+        symbol: row.product,
+        product: row.product,
+        denomination,
+      };
+      orderDepths[row.product] = getOrderDepth(row);
+    }
+
+    return {
+      state: {
+        timestamp: logRow.timestamp,
+        traderData: '',
+        listings,
+        orderDepths,
+        ownTrades: groupTrades(
+          tradesForTimestamp,
+          trade => trade.buyer === 'SUBMISSION' || trade.seller === 'SUBMISSION',
+        ),
+        marketTrades: groupTrades(
+          tradesForTimestamp,
+          trade => trade.buyer !== 'SUBMISSION' && trade.seller !== 'SUBMISSION',
+        ),
+        position: getPositionsFromLambdaLog(logRow.lambdaLog),
+        observations: {
+          plainValueObservations: {},
+          conversionObservations: {},
+        },
+      },
+      orders: {},
+      conversions: 0,
+      traderData: '',
+      algorithmLogs: logRow.lambdaLog.trim(),
+      sandboxLogs: logRow.sandboxLog.trim(),
+    };
+  });
+
+  return {
+    activityLogs,
+    data,
+  };
+}
+
 export function parseAlgorithmLogs(logs: string, summary?: AlgorithmSummary): Algorithm {
+  const parsedJsonLogs = parseJsonAlgorithmLogs(logs);
+  if (parsedJsonLogs !== null) {
+    return {
+      ...parsedJsonLogs,
+      summary,
+    };
+  }
+
   const logLines = logs.trim().split(/\r?\n/);
 
   const activityLogs = getActivityLogs(logLines);
