@@ -90,25 +90,32 @@ function parseNumber(value: string): number | null {
 }
 
 function parsePriceRows(raw: string): ExamplePriceRow[] {
-  return parseDelimitedFile(raw, values => ({
-    day: Number(values[0]),
-    timestamp: Number(values[1]),
-    product: values[2],
-    bidPrice1: parseNumber(values[3]),
-    bidVolume1: parseNumber(values[4]),
-    bidPrice2: parseNumber(values[5]),
-    bidVolume2: parseNumber(values[6]),
-    bidPrice3: parseNumber(values[7]),
-    bidVolume3: parseNumber(values[8]),
-    askPrice1: parseNumber(values[9]),
-    askVolume1: parseNumber(values[10]),
-    askPrice2: parseNumber(values[11]),
-    askVolume2: parseNumber(values[12]),
-    askPrice3: parseNumber(values[13]),
-    askVolume3: parseNumber(values[14]),
-    midPrice: parseNumber(values[15]),
-    profitAndLoss: parseNumber(values[16]),
-  }));
+  return parseDelimitedFile(raw, values => {
+    const bidPrice1 = parseNumber(values[3]);
+    const askPrice1 = parseNumber(values[9]);
+    const parsedMidPrice = parseNumber(values[15]);
+    const midPrice = parsedMidPrice === 0 && bidPrice1 === null && askPrice1 === null ? null : parsedMidPrice;
+
+    return {
+      day: Number(values[0]),
+      timestamp: Number(values[1]),
+      product: values[2],
+      bidPrice1,
+      bidVolume1: parseNumber(values[4]),
+      bidPrice2: parseNumber(values[5]),
+      bidVolume2: parseNumber(values[6]),
+      bidPrice3: parseNumber(values[7]),
+      bidVolume3: parseNumber(values[8]),
+      askPrice1,
+      askVolume1: parseNumber(values[10]),
+      askPrice2: parseNumber(values[11]),
+      askVolume2: parseNumber(values[12]),
+      askPrice3: parseNumber(values[13]),
+      askVolume3: parseNumber(values[14]),
+      midPrice,
+      profitAndLoss: parseNumber(values[16]),
+    };
+  });
 }
 
 function parseTradeRows(raw: string): ExampleTradeRow[] {
