@@ -5,6 +5,7 @@ import '@mantine/code-highlight/styles.css';
 import { createTheme, MantineProvider } from '@mantine/core';
 import { ReactNode } from 'react';
 import { createBrowserRouter, createRoutesFromElements, Navigate, Route, RouterProvider } from 'react-router-dom';
+import { ExampleRoundAnalysisPage } from './pages/analysis/ExampleRoundAnalysisPage.tsx';
 import { BasePage } from './pages/base/BasePage.tsx';
 import { HomePage } from './pages/home/HomePage.tsx';
 import { VisualizerPage } from './pages/visualizer/VisualizerPage.tsx';
@@ -34,6 +35,7 @@ const router = createBrowserRouter(
   createRoutesFromElements(
     <Route path="/" element={<BasePage />}>
       <Route path="/" element={<HomePage />} />
+      <Route path="/analysis" element={<ExampleRoundAnalysisPage />} />
       <Route path="/visualizer" element={<VisualizerPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Route>,

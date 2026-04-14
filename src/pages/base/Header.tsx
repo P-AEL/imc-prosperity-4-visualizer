@@ -1,5 +1,5 @@
 import { Box, Container, Group, Text, Tooltip } from '@mantine/core';
-import { IconEye, IconHome } from '@tabler/icons-react';
+import { IconChartDots, IconEye, IconHome } from '@tabler/icons-react';
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useStore } from '../../store.ts';
@@ -20,6 +20,17 @@ export function Header(): ReactNode {
         <IconHome size={18} />
       </Box>
       <Box visibleFrom="xs">Home</Box>
+    </Link>,
+    <Link
+      key="analysis"
+      to={`/analysis${location.search}`}
+      className={classes.link}
+      data-active={location.pathname === '/analysis' || undefined}
+    >
+      <Box hiddenFrom="xs">
+        <IconChartDots size={18} />
+      </Box>
+      <Box visibleFrom="xs">Analysis</Box>
     </Link>,
   ];
 
