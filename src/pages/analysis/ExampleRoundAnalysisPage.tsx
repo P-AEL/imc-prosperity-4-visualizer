@@ -2,19 +2,16 @@ import { Badge, Container, Grid, Group, Select, SimpleGrid, Stack, Table, Text, 
 import { Dropzone, FileRejection } from '@mantine/dropzone';
 import { IconUpload } from '@tabler/icons-react';
 import Highcharts from 'highcharts/highstock';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { ErrorAlert } from '../../components/ErrorAlert.tsx';
 import { useAsync } from '../../hooks/use-async.ts';
 import {
   buildRoundDayAnalysis,
   ExampleProductMetrics,
   ExampleRoundDayAnalysis,
-  getExampleRoundAnalysesByKey,
   getExampleRoundAnalysisKey,
-  getExampleRoundAnalysisOptions,
   getRoundDayFromFileName,
   getRoundDayFromPriceCsv,
-  loadExampleRoundAnalyses,
 } from '../../utils/example-round-analysis.ts';
 import { formatNumber } from '../../utils/format.ts';
 import { Chart } from '../visualizer/Chart.tsx';
@@ -164,36 +161,22 @@ function createUploadedDayEntries(
     });
 }
 
-function createDatasetOptions(
-  bundledAnalyses: ExampleRoundDayAnalysis[],
-  uploadedDayEntries: UploadedDayEntry[],
-): Array<{ value: string; label: string }> {
-  const bundledOptions = getExampleRoundAnalysisOptions(bundledAnalyses).map(option => ({
-    value: `example:${option.value}`,
-    label: `Example ${option.label}`,
-  }));
-  const uploadedOptions = uploadedDayEntries
+function createDatasetOptions(uploadedDayEntries: UploadedDayEntry[]): Array<{ value: string; label: string }> {
+  return uploadedDayEntries
     .filter(entry => entry.analysis !== null)
     .map(entry => ({
-      value: `uploaded:${entry.key}`,
-      label: `Uploaded Round ${entry.round} / Day ${entry.day}`,
+      value: entry.key,
+      label: `Round ${entry.round} / Day ${entry.day}`,
     }));
-
-  return [...bundledOptions, ...uploadedOptions];
 }
 
 export function ExampleRoundAnalysisPage(): ReactNode {
-  const bundledAnalysesRequest = useAsync<ExampleRoundDayAnalysis[]>(loadExampleRoundAnalyses);
   const [priceUploadError, setPriceUploadError] = useState<Error>();
   const [selectedDatasetKey, setSelectedDatasetKey] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [tradeUploadError, setTradeUploadError] = useState<Error>();
   const [uploadedPriceFiles, setUploadedPriceFiles] = useState<Record<string, UploadedCsvFile>>({});
   const [uploadedTradeFiles, setUploadedTradeFiles] = useState<Record<string, UploadedCsvFile>>({});
-
-  useEffect(() => {
-    bundledAnalysesRequest.call();
-  }, [bundledAnalysesRequest.call]);
 
   const uploadPriceFiles = useAsync(async (files: File[]): Promise<void> => {
     setPriceUploadError(undefined);
@@ -224,6 +207,9 @@ export function ExampleRoundAnalysisPage(): ReactNode {
 
       return nextFiles;
     });
+
+    const lastFile = parsedFiles[parsedFiles.length - 1];
+    setSelectedDatasetKey(getExampleRoundAnalysisKey(lastFile.round, lastFile.day));
   });
 
   const uploadTradeFiles = useAsync(async (files: File[]): Promise<void> => {
@@ -255,99 +241,78 @@ export function ExampleRoundAnalysisPage(): ReactNode {
 
       return nextFiles;
     });
+
+    const lastFile = parsedFiles[parsedFiles.length - 1];
+    setSelectedDatasetKey(getExampleRoundAnalysisKey(lastFile.round, lastFile.day));
   });
 
-  if (!bundledAnalysesRequest.success || bundledAnalysesRequest.result === undefined) {
-    return (
-      <Container fluid>
-        <VisualizerCard>
-          <Title order={2}>Round CSV Analysis</Title>
-          <Text mt="xs">
-            {bundledAnalysesRequest.error
-              ? `Could not load the bundled example CSVs: ${bundledAnalysesRequest.error.message}`
-              : 'Loading bundled example CSV datasets...'}
-          </Text>
-        </VisualizerCard>
-      </Container>
-    );
-  }
-
-  const bundledAnalyses = bundledAnalysesRequest.result;
   const uploadedDayEntries = createUploadedDayEntries(uploadedPriceFiles, uploadedTradeFiles);
-  const datasetOptions = createDatasetOptions(bundledAnalyses, uploadedDayEntries);
-  const activeDatasetKey = selectedDatasetKey ?? datasetOptions[0].value;
-  const bundledAnalysesByKey = Object.fromEntries(
-    Object.entries(getExampleRoundAnalysesByKey(bundledAnalyses)).map(([key, analysis]) => [
-      `example:${key}`,
-      analysis,
-    ]),
-  );
+  const datasetOptions = createDatasetOptions(uploadedDayEntries);
+  const activeDatasetKey = selectedDatasetKey ?? datasetOptions[0]?.value ?? null;
   const uploadedAnalysesByKey = Object.fromEntries(
-    uploadedDayEntries.flatMap(entry => (entry.analysis === null ? [] : [[`uploaded:${entry.key}`, entry.analysis]])),
-  );
-  const allAnalysesByKey = {
-    ...bundledAnalysesByKey,
-    ...uploadedAnalysesByKey,
-  } as Record<string, ExampleRoundDayAnalysis>;
-  const analysis = allAnalysesByKey[activeDatasetKey] ?? bundledAnalyses[0];
+    uploadedDayEntries.flatMap(entry => (entry.analysis === null ? [] : [[entry.key, entry.analysis]])),
+  ) as Record<string, ExampleRoundDayAnalysis>;
+  const analysis = activeDatasetKey === null ? null : (uploadedAnalysesByKey[activeDatasetKey] ?? null);
   const product =
-    selectedProduct !== null && analysis.products.includes(selectedProduct) ? selectedProduct : analysis.products[0];
-  const priceRows = analysis.priceRowsByProduct[product];
-  const tradeRows = analysis.tradeRowsByProduct[product];
-  const metrics = analysis.metricsByProduct[product];
-  const uploadedDayOptions = uploadedDayEntries
-    .filter(entry => entry.analysis !== null)
-    .map(entry => ({
-      value: `uploaded:${entry.key}`,
-      label: `Round ${entry.round} / Day ${entry.day}`,
-    }));
+    analysis !== null && selectedProduct !== null && analysis.products.includes(selectedProduct)
+      ? selectedProduct
+      : (analysis?.products[0] ?? null);
+  const priceRows = product !== null && analysis !== null ? analysis.priceRowsByProduct[product] : [];
+  const tradeRows = product !== null && analysis !== null ? analysis.tradeRowsByProduct[product] : [];
+  const metrics = product !== null && analysis !== null ? analysis.metricsByProduct[product] : null;
 
-  const priceSeries: Highcharts.SeriesOptionsType[] = [
-    {
-      type: 'line',
-      name: 'Best bid',
-      data: priceRows.flatMap(row => (row.bidPrice1 === null ? [] : [[row.timestamp, row.bidPrice1]])),
-      tooltip: {
-        valueDecimals: 2,
-      },
-    },
-    {
-      type: 'line',
-      name: 'Mid price',
-      data: priceRows.flatMap(row => (row.midPrice === null ? [] : [[row.timestamp, row.midPrice]])),
-      tooltip: {
-        valueDecimals: 2,
-      },
-    },
-    {
-      type: 'line',
-      name: 'Best ask',
-      data: priceRows.flatMap(row => (row.askPrice1 === null ? [] : [[row.timestamp, row.askPrice1]])),
-      tooltip: {
-        valueDecimals: 2,
-      },
-    },
-  ];
+  const priceSeries: Highcharts.SeriesOptionsType[] =
+    analysis === null || product === null
+      ? []
+      : [
+          {
+            type: 'line',
+            name: 'Best bid',
+            data: priceRows.flatMap(row => (row.bidPrice1 === null ? [] : [[row.timestamp, row.bidPrice1]])),
+            tooltip: {
+              valueDecimals: 2,
+            },
+          },
+          {
+            type: 'line',
+            name: 'Mid price',
+            data: priceRows.flatMap(row => (row.midPrice === null ? [] : [[row.timestamp, row.midPrice]])),
+            tooltip: {
+              valueDecimals: 2,
+            },
+          },
+          {
+            type: 'line',
+            name: 'Best ask',
+            data: priceRows.flatMap(row => (row.askPrice1 === null ? [] : [[row.timestamp, row.askPrice1]])),
+            tooltip: {
+              valueDecimals: 2,
+            },
+          },
+        ];
 
-  const tradeSeries: Highcharts.SeriesOptionsType[] = [
-    {
-      type: 'scatter',
-      name: 'Trade price',
-      data: tradeRows.map(row => [row.timestamp, row.price]),
-      tooltip: {
-        valueDecimals: 2,
-      },
-    },
-    {
-      type: 'column',
-      name: 'Trade size',
-      yAxis: 1,
-      data: tradeRows.map(row => [row.timestamp, Math.abs(row.quantity)]),
-      tooltip: {
-        valueDecimals: 0,
-      },
-    },
-  ];
+  const tradeSeries: Highcharts.SeriesOptionsType[] =
+    analysis === null || product === null
+      ? []
+      : [
+          {
+            type: 'scatter',
+            name: 'Trade price',
+            data: tradeRows.map(row => [row.timestamp, row.price]),
+            tooltip: {
+              valueDecimals: 2,
+            },
+          },
+          {
+            type: 'column',
+            name: 'Trade size',
+            yAxis: 1,
+            data: tradeRows.map(row => [row.timestamp, Math.abs(row.quantity)]),
+            tooltip: {
+              valueDecimals: 0,
+            },
+          },
+        ];
 
   const tradeTableRows = tradeRows.slice(0, 12).map((trade, index) => (
     <Table.Tr key={`${trade.timestamp}-${trade.price}-${index}`}>
@@ -384,8 +349,8 @@ export function ExampleRoundAnalysisPage(): ReactNode {
         <VisualizerCard>
           <Title order={2}>Round CSV Analysis</Title>
           <Text mt="xs">
-            Analyze the bundled example datasets or upload your own round CSVs. Prices and trades are uploaded
-            separately, and the uploaded days panel pairs them into ready-to-analyze day views.
+            Upload your own round CSVs. Prices and trades are uploaded separately, and the uploaded days panel pairs
+            them into ready-to-analyze day views.
           </Text>
         </VisualizerCard>
 
@@ -479,11 +444,11 @@ export function ExampleRoundAnalysisPage(): ReactNode {
 
                 <Select
                   allowDeselect={false}
-                  data={uploadedDayOptions}
-                  disabled={uploadedDayOptions.length === 0}
+                  data={datasetOptions}
+                  disabled={datasetOptions.length === 0}
                   label="Uploaded day view"
                   placeholder="Upload matching price and trade CSVs first"
-                  value={activeDatasetKey.startsWith('uploaded:') ? activeDatasetKey : null}
+                  value={activeDatasetKey}
                   onChange={value => {
                     if (value !== null) {
                       setSelectedDatasetKey(value);
@@ -496,183 +461,191 @@ export function ExampleRoundAnalysisPage(): ReactNode {
           </Grid.Col>
         </Grid>
 
-        <VisualizerCard>
-          <Group justify="space-between" align="end">
-            <Select
-              allowDeselect={false}
-              data={datasetOptions}
-              label="Active dataset"
-              value={activeDatasetKey}
-              onChange={value => {
-                if (value !== null) {
-                  setSelectedDatasetKey(value);
-                  setSelectedProduct(null);
-                }
-              }}
-              w={320}
-            />
-            <Select
-              allowDeselect={false}
-              data={analysis.products}
-              label="Product"
-              value={product}
-              onChange={value => {
-                if (value !== null) {
-                  setSelectedProduct(value);
-                }
-              }}
-              w={260}
-            />
-          </Group>
-        </VisualizerCard>
-
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-          <VisualizerCard title="Closing Mid">
-            <Text size="xl" fw={700}>
-              {formatMetric(metrics.closeMidPrice)}
-            </Text>
-            <Badge mt="sm" color={getMetricTone(metrics.absoluteChange)} variant="light">
-              {formatMetric(metrics.absoluteChange)} ({formatMetric(metrics.percentageChange, 2, '%')})
-            </Badge>
+        {analysis === null || product === null || metrics === null ? (
+          <VisualizerCard>
+            <Text>Upload at least one matching pair of price and trade CSVs to start analyzing a day.</Text>
           </VisualizerCard>
-
-          <VisualizerCard title="Spread Profile">
-            <Text size="xl" fw={700}>
-              {formatMetric(metrics.averageSpread)}
-            </Text>
-            <Text size="sm" c="dimmed">
-              Min {formatMetric(metrics.minSpread)} / Max {formatMetric(metrics.maxSpread)}
-            </Text>
-          </VisualizerCard>
-
-          <VisualizerCard title="Trade Activity">
-            <Text size="xl" fw={700}>
-              {formatNumber(metrics.tradeCount)} trades
-            </Text>
-            <Text size="sm" c="dimmed">
-              {formatNumber(metrics.totalTradedVolume)} units traded
-            </Text>
-          </VisualizerCard>
-
-          <VisualizerCard title="VWAP Basis">
-            <Text size="xl" fw={700}>
-              {formatMetric(metrics.volumeWeightedAveragePrice)}
-            </Text>
-            <Badge mt="sm" color={getMetricTone(metrics.tradePriceToCloseBasis)} variant="light">
-              Close basis {formatMetric(metrics.tradePriceToCloseBasis)}
-            </Badge>
-          </VisualizerCard>
-        </SimpleGrid>
-
-        <Grid>
-          <Grid.Col span={{ base: 12, xl: 7 }}>
-            <Chart title={`${product} order book prices`} series={priceSeries} />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, xl: 5 }}>
-            <VisualizerCard title={`${product} trading summary`}>
-              <Stack gap="xs">
-                <Group justify="space-between">
-                  <Text c="dimmed">Observed snapshots</Text>
-                  <Text fw={600}>{formatNumber(metrics.snapshotCount)}</Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">Spread coverage</Text>
-                  <Text fw={600}>{formatMetric(metrics.spreadCoverage * 100, 1, '%')}</Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">Intraday range</Text>
-                  <Text fw={600}>
-                    {formatMetric(metrics.lowMidPrice)} to {formatMetric(metrics.highMidPrice)}
-                  </Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">Average top-of-book volume</Text>
-                  <Text fw={600}>{formatMetric(metrics.averageTopOfBookVolume)}</Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">Average trade size</Text>
-                  <Text fw={600}>{formatMetric(metrics.averageTradeSize)}</Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">First / last trade</Text>
-                  <Text fw={600}>
-                    {metrics.firstTradeTimestamp === null ? 'N/A' : formatNumber(metrics.firstTradeTimestamp)} /{' '}
-                    {metrics.lastTradeTimestamp === null ? 'N/A' : formatNumber(metrics.lastTradeTimestamp)}
-                  </Text>
-                </Group>
-                <Group justify="space-between">
-                  <Text c="dimmed">Traded notional</Text>
-                  <Text fw={600}>{formatMetric(metrics.totalTradedNotional)}</Text>
-                </Group>
-              </Stack>
+        ) : (
+          <>
+            <VisualizerCard>
+              <Group justify="space-between" align="end">
+                <Select
+                  allowDeselect={false}
+                  data={datasetOptions}
+                  label="Active dataset"
+                  value={activeDatasetKey}
+                  onChange={value => {
+                    if (value !== null) {
+                      setSelectedDatasetKey(value);
+                      setSelectedProduct(null);
+                    }
+                  }}
+                  w={320}
+                />
+                <Select
+                  allowDeselect={false}
+                  data={analysis.products}
+                  label="Product"
+                  value={product}
+                  onChange={value => {
+                    if (value !== null) {
+                      setSelectedProduct(value);
+                    }
+                  }}
+                  w={260}
+                />
+              </Group>
             </VisualizerCard>
-          </Grid.Col>
 
-          <Grid.Col span={{ base: 12, xl: 7 }}>
-            <Chart
-              title={`${product} trade prints and size`}
-              series={tradeSeries}
-              options={{
-                yAxis: [
-                  {
-                    title: {
-                      text: 'Trade price',
-                    },
-                  },
-                  {
-                    title: {
-                      text: 'Trade size',
-                    },
-                    opposite: true,
-                  },
-                ],
-              }}
-            />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, xl: 5 }}>
-            <VisualizerCard title="Recent trades">
-              {tradeTableRows.length === 0 ? (
-                <Text>No trades recorded for this product/day.</Text>
-              ) : (
-                <Table.ScrollContainer minWidth={320}>
-                  <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Timestamp</Table.Th>
-                        <Table.Th>Price</Table.Th>
-                        <Table.Th>Size</Table.Th>
-                        <Table.Th>Currency</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>{tradeTableRows}</Table.Tbody>
-                  </Table>
-                </Table.ScrollContainer>
-              )}
-            </VisualizerCard>
-          </Grid.Col>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+              <VisualizerCard title="Closing Mid">
+                <Text size="xl" fw={700}>
+                  {formatMetric(metrics.closeMidPrice)}
+                </Text>
+                <Badge mt="sm" color={getMetricTone(metrics.absoluteChange)} variant="light">
+                  {formatMetric(metrics.absoluteChange)} ({formatMetric(metrics.percentageChange, 2, '%')})
+                </Badge>
+              </VisualizerCard>
 
-          <Grid.Col span={12}>
-            <VisualizerCard title={`Round ${analysis.round} / Day ${analysis.day} comparison`}>
-              <Table.ScrollContainer minWidth={720}>
-                <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Product</Table.Th>
-                      <Table.Th>Open mid</Table.Th>
-                      <Table.Th>Close mid</Table.Th>
-                      <Table.Th>Change</Table.Th>
-                      <Table.Th>Avg spread</Table.Th>
-                      <Table.Th>Trades</Table.Th>
-                      <Table.Th>Volume</Table.Th>
-                      <Table.Th>VWAP</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>{createOverviewRows(analysis.metricsByProduct)}</Table.Tbody>
-                </Table>
-              </Table.ScrollContainer>
-            </VisualizerCard>
-          </Grid.Col>
-        </Grid>
+              <VisualizerCard title="Spread Profile">
+                <Text size="xl" fw={700}>
+                  {formatMetric(metrics.averageSpread)}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  Min {formatMetric(metrics.minSpread)} / Max {formatMetric(metrics.maxSpread)}
+                </Text>
+              </VisualizerCard>
+
+              <VisualizerCard title="Trade Activity">
+                <Text size="xl" fw={700}>
+                  {formatNumber(metrics.tradeCount)} trades
+                </Text>
+                <Text size="sm" c="dimmed">
+                  {formatNumber(metrics.totalTradedVolume)} units traded
+                </Text>
+              </VisualizerCard>
+
+              <VisualizerCard title="VWAP Basis">
+                <Text size="xl" fw={700}>
+                  {formatMetric(metrics.volumeWeightedAveragePrice)}
+                </Text>
+                <Badge mt="sm" color={getMetricTone(metrics.tradePriceToCloseBasis)} variant="light">
+                  Close basis {formatMetric(metrics.tradePriceToCloseBasis)}
+                </Badge>
+              </VisualizerCard>
+            </SimpleGrid>
+
+            <Grid>
+              <Grid.Col span={{ base: 12, xl: 7 }}>
+                <Chart title={`${product} order book prices`} series={priceSeries} />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, xl: 5 }}>
+                <VisualizerCard title={`${product} trading summary`}>
+                  <Stack gap="xs">
+                    <Group justify="space-between">
+                      <Text c="dimmed">Observed snapshots</Text>
+                      <Text fw={600}>{formatNumber(metrics.snapshotCount)}</Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">Spread coverage</Text>
+                      <Text fw={600}>{formatMetric(metrics.spreadCoverage * 100, 1, '%')}</Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">Intraday range</Text>
+                      <Text fw={600}>
+                        {formatMetric(metrics.lowMidPrice)} to {formatMetric(metrics.highMidPrice)}
+                      </Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">Average top-of-book volume</Text>
+                      <Text fw={600}>{formatMetric(metrics.averageTopOfBookVolume)}</Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">Average trade size</Text>
+                      <Text fw={600}>{formatMetric(metrics.averageTradeSize)}</Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">First / last trade</Text>
+                      <Text fw={600}>
+                        {metrics.firstTradeTimestamp === null ? 'N/A' : formatNumber(metrics.firstTradeTimestamp)} /{' '}
+                        {metrics.lastTradeTimestamp === null ? 'N/A' : formatNumber(metrics.lastTradeTimestamp)}
+                      </Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text c="dimmed">Traded notional</Text>
+                      <Text fw={600}>{formatMetric(metrics.totalTradedNotional)}</Text>
+                    </Group>
+                  </Stack>
+                </VisualizerCard>
+              </Grid.Col>
+
+              <Grid.Col span={{ base: 12, xl: 7 }}>
+                <Chart
+                  title={`${product} trade prints and size`}
+                  series={tradeSeries}
+                  options={{
+                    yAxis: [
+                      {
+                        title: {
+                          text: 'Trade price',
+                        },
+                      },
+                      {
+                        title: {
+                          text: 'Trade size',
+                        },
+                        opposite: true,
+                      },
+                    ],
+                  }}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, xl: 5 }}>
+                <VisualizerCard title="Recent trades">
+                  {tradeTableRows.length === 0 ? (
+                    <Text>No trades recorded for this product/day.</Text>
+                  ) : (
+                    <Table.ScrollContainer minWidth={320}>
+                      <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Timestamp</Table.Th>
+                            <Table.Th>Price</Table.Th>
+                            <Table.Th>Size</Table.Th>
+                            <Table.Th>Currency</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>{tradeTableRows}</Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                  )}
+                </VisualizerCard>
+              </Grid.Col>
+
+              <Grid.Col span={12}>
+                <VisualizerCard title={`Round ${analysis.round} / Day ${analysis.day} comparison`}>
+                  <Table.ScrollContainer minWidth={720}>
+                    <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Product</Table.Th>
+                          <Table.Th>Open mid</Table.Th>
+                          <Table.Th>Close mid</Table.Th>
+                          <Table.Th>Change</Table.Th>
+                          <Table.Th>Avg spread</Table.Th>
+                          <Table.Th>Trades</Table.Th>
+                          <Table.Th>Volume</Table.Th>
+                          <Table.Th>VWAP</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>{createOverviewRows(analysis.metricsByProduct)}</Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </VisualizerCard>
+              </Grid.Col>
+            </Grid>
+          </>
+        )}
       </Stack>
     </Container>
   );
