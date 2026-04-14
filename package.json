@@ -8,11 +8,11 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "pnpm run \"/^lint:.*/\"",
-    "lint:eslint": "eslint --format codeframe '**/*.ts' '**/*.tsx'",
-    "lint:prettier": "prettier --check '**/*.{ts,tsx,cjs,css,html,json,yml}'",
+    "lint:eslint": "eslint --format codeframe \"**/*.ts\" \"**/*.tsx\"",
+    "lint:prettier": "prettier --check \"**/*.{ts,tsx,cjs,css,html,json,yml}\"",
     "fix": "pnpm run --sequential \"/^fix:.*/\"",
     "fix:eslint": "pnpm lint:eslint --fix",
-    "fix:prettier": "prettier --write '**/*.{ts,tsx,cjs,css,html,json,yml}'"
+    "fix:prettier": "prettier --write \"**/*.{ts,tsx,cjs,css,html,json,yml}\""
   },
   "dependencies": {
     "@mantine/code-highlight": "^7.17.0",

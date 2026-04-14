@@ -74,7 +74,8 @@ export function ExampleRoundAnalysisPage(): ReactNode {
   const analysesByKey = getExampleRoundAnalysesByKey(analyses);
   const activeAnalysisKey = selectedAnalysisKey ?? analysisOptions[0].value;
   const analysis = analysesByKey[activeAnalysisKey];
-  const product = selectedProduct !== null && analysis.products.includes(selectedProduct) ? selectedProduct : analysis.products[0];
+  const product =
+    selectedProduct !== null && analysis.products.includes(selectedProduct) ? selectedProduct : analysis.products[0];
   const priceRows = analysis.priceRowsByProduct[product];
   const tradeRows = analysis.tradeRowsByProduct[product];
   const metrics = analysis.metricsByProduct[product];

@@ -69,7 +69,10 @@ interface ExampleRoundFileSet {
 
 function parseDelimitedFile<T>(raw: string, parser: (values: string[]) => T): T[] {
   const lines = raw.trim().split(/\r?\n/);
-  return lines.slice(1).filter(Boolean).map(line => parser(line.split(';')));
+  return lines
+    .slice(1)
+    .filter(Boolean)
+    .map(line => parser(line.split(';')));
 }
 
 function parseNumber(value: string): number | null {
@@ -143,7 +146,11 @@ function max(values: number[]): number | null {
   return Math.max(...values);
 }
 
-function buildMetrics(product: string, priceRows: ExamplePriceRow[], tradeRows: ExampleTradeRow[]): ExampleProductMetrics {
+function buildMetrics(
+  product: string,
+  priceRows: ExamplePriceRow[],
+  tradeRows: ExampleTradeRow[],
+): ExampleProductMetrics {
   const midPrices = priceRows.flatMap(row => (row.midPrice === null ? [] : [row.midPrice]));
   const spreads = priceRows.flatMap(row =>
     row.bidPrice1 !== null && row.askPrice1 !== null ? [row.askPrice1 - row.bidPrice1] : [],
@@ -282,7 +289,9 @@ export function getExampleRoundAnalysisKey(round: number, day: number): string {
   return `round-${round}-day-${day}`;
 }
 
-export function getExampleRoundAnalysisOptions(analyses: ExampleRoundDayAnalysis[]): Array<{ value: string; label: string }> {
+export function getExampleRoundAnalysisOptions(
+  analyses: ExampleRoundDayAnalysis[],
+): Array<{ value: string; label: string }> {
   return analyses.map(analysis => ({
     value: getExampleRoundAnalysisKey(analysis.round, analysis.day),
     label: `Round ${analysis.round} / Day ${analysis.day}`,
