@@ -61,6 +61,11 @@ export interface ExampleRoundDayAnalysis {
   metricsByProduct: Record<string, ExampleProductMetrics>;
 }
 
+export interface RoundDayKey {
+  round: number;
+  day: number;
+}
+
 interface ExampleRoundFileSet {
   day: number;
   pricesFileName: string;
@@ -204,7 +209,12 @@ function buildMetrics(
   };
 }
 
-function buildDayAnalysis(round: number, day: number, pricesRaw: string, tradesRaw: string): ExampleRoundDayAnalysis {
+export function buildRoundDayAnalysis(
+  round: number,
+  day: number,
+  pricesRaw: string,
+  tradesRaw: string,
+): ExampleRoundDayAnalysis {
   const priceRows = parsePriceRows(pricesRaw);
   const tradeRows = parseTradeRows(tradesRaw);
   const productSet = new Set<string>();
@@ -277,7 +287,7 @@ export async function loadExampleRoundAnalyses(): Promise<ExampleRoundDayAnalysi
           loadTextFile(fileSet.tradesFileName),
         ]);
 
-        return buildDayAnalysis(1, fileSet.day, pricesRaw, tradesRaw);
+        return buildRoundDayAnalysis(1, fileSet.day, pricesRaw, tradesRaw);
       }),
     );
   }
@@ -287,6 +297,47 @@ export async function loadExampleRoundAnalyses(): Promise<ExampleRoundDayAnalysi
 
 export function getExampleRoundAnalysisKey(round: number, day: number): string {
   return `round-${round}-day-${day}`;
+}
+
+export function getRoundDayFromFileName(fileName: string): RoundDayKey | null {
+  const roundMatch = fileName.match(/round_(\d+)/i);
+  const dayMatch = fileName.match(/day_(-?\d+)/i);
+
+  if (dayMatch === null) {
+    return null;
+  }
+
+  return {
+    round: roundMatch === null ? 1 : Number(roundMatch[1]),
+    day: Number(dayMatch[1]),
+  };
+}
+
+export function getRoundDayFromPriceCsv(raw: string, fileName?: string): RoundDayKey | null {
+  const fromFileName = fileName ? getRoundDayFromFileName(fileName) : null;
+  if (fromFileName !== null) {
+    return fromFileName;
+  }
+
+  const lines = raw.trim().split(/\r?\n/);
+  if (lines.length < 2) {
+    return null;
+  }
+
+  const firstValues = lines[1].split(';');
+  if (firstValues.length < 2) {
+    return null;
+  }
+
+  const day = Number(firstValues[0]);
+  if (!Number.isFinite(day)) {
+    return null;
+  }
+
+  return {
+    round: 1,
+    day,
+  };
 }
 
 export function getExampleRoundAnalysisOptions(
