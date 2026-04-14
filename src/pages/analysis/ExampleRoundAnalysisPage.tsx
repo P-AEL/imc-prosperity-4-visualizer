@@ -3,8 +3,8 @@ import Highcharts from 'highcharts/highstock';
 import { ReactNode, useEffect, useState } from 'react';
 import { useAsync } from '../../hooks/use-async.ts';
 import {
-  ExampleRoundDayAnalysis,
   ExampleProductMetrics,
+  ExampleRoundDayAnalysis,
   getExampleRoundAnalysesByKey,
   getExampleRoundAnalysisOptions,
   loadExampleRoundAnalyses,
