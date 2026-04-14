@@ -1,8 +1,9 @@
 import { Badge, Container, Grid, Group, Select, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
 import Highcharts from 'highcharts/highstock';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { useAsync } from '../../hooks/use-async.ts';
 import {
+  ExampleRoundDayAnalysis,
   ExampleProductMetrics,
   getExampleRoundAnalysesByKey,
   getExampleRoundAnalysisOptions,
@@ -50,11 +51,15 @@ function createOverviewRows(metricsByProduct: Record<string, ExampleProductMetri
 }
 
 export function ExampleRoundAnalysisPage(): ReactNode {
-  const exampleRoundAnalyses = useAsync(loadExampleRoundAnalyses);
+  const exampleRoundAnalyses = useAsync<ExampleRoundDayAnalysis[]>(loadExampleRoundAnalyses);
   const [selectedAnalysisKey, setSelectedAnalysisKey] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 
-  if (!exampleRoundAnalyses.success) {
+  useEffect(() => {
+    exampleRoundAnalyses.call();
+  }, [exampleRoundAnalyses]);
+
+  if (!exampleRoundAnalyses.success || exampleRoundAnalyses.result === undefined) {
     return (
       <Container fluid>
         <VisualizerCard>
