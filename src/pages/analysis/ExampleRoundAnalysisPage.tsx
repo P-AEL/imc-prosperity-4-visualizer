@@ -1,15 +1,16 @@
 import { Badge, Container, Grid, Group, Select, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
-import { ReactNode, useState } from 'react';
 import Highcharts from 'highcharts/highstock';
-import { Chart } from '../visualizer/Chart.tsx';
-import { VisualizerCard } from '../visualizer/VisualizerCard.tsx';
+import { ReactNode, useState } from 'react';
+import { useAsync } from '../../hooks/use-async.ts';
 import {
-  EXAMPLE_ROUND_ANALYSES,
-  EXAMPLE_ROUND_ANALYSES_BY_KEY,
-  EXAMPLE_ROUND_ANALYSIS_OPTIONS,
   ExampleProductMetrics,
+  getExampleRoundAnalysesByKey,
+  getExampleRoundAnalysisOptions,
+  loadExampleRoundAnalyses,
 } from '../../utils/example-round-analysis.ts';
 import { formatNumber } from '../../utils/format.ts';
+import { Chart } from '../visualizer/Chart.tsx';
+import { VisualizerCard } from '../visualizer/VisualizerCard.tsx';
 
 function formatMetric(value: number | null, decimals: number = 2, suffix: string = ''): string {
   if (value === null) {
@@ -49,11 +50,31 @@ function createOverviewRows(metricsByProduct: Record<string, ExampleProductMetri
 }
 
 export function ExampleRoundAnalysisPage(): ReactNode {
-  const [selectedAnalysisKey, setSelectedAnalysisKey] = useState(EXAMPLE_ROUND_ANALYSIS_OPTIONS[0].value);
-  const [selectedProduct, setSelectedProduct] = useState(EXAMPLE_ROUND_ANALYSES[0].products[0]);
+  const exampleRoundAnalyses = useAsync(loadExampleRoundAnalyses);
+  const [selectedAnalysisKey, setSelectedAnalysisKey] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 
-  const analysis = EXAMPLE_ROUND_ANALYSES_BY_KEY[selectedAnalysisKey];
-  const product = analysis.products.includes(selectedProduct) ? selectedProduct : analysis.products[0];
+  if (!exampleRoundAnalyses.success) {
+    return (
+      <Container fluid>
+        <VisualizerCard>
+          <Title order={2}>Example Round Analysis</Title>
+          <Text mt="xs">
+            {exampleRoundAnalyses.error
+              ? `Could not load the bundled example CSVs: ${exampleRoundAnalyses.error.message}`
+              : 'Loading bundled example CSV datasets...'}
+          </Text>
+        </VisualizerCard>
+      </Container>
+    );
+  }
+
+  const analyses = exampleRoundAnalyses.result;
+  const analysisOptions = getExampleRoundAnalysisOptions(analyses);
+  const analysesByKey = getExampleRoundAnalysesByKey(analyses);
+  const activeAnalysisKey = selectedAnalysisKey ?? analysisOptions[0].value;
+  const analysis = analysesByKey[activeAnalysisKey];
+  const product = selectedProduct !== null && analysis.products.includes(selectedProduct) ? selectedProduct : analysis.products[0];
   const priceRows = analysis.priceRowsByProduct[product];
   const tradeRows = analysis.tradeRowsByProduct[product];
   const metrics = analysis.metricsByProduct[product];
@@ -130,15 +151,15 @@ export function ExampleRoundAnalysisPage(): ReactNode {
           <Group justify="space-between" align="end">
             <Select
               label="Dataset"
-              data={EXAMPLE_ROUND_ANALYSIS_OPTIONS}
-              value={selectedAnalysisKey}
+              data={analysisOptions}
+              value={activeAnalysisKey}
               onChange={value => {
                 if (value === null) {
                   return;
                 }
 
                 setSelectedAnalysisKey(value);
-                const nextAnalysis = EXAMPLE_ROUND_ANALYSES_BY_KEY[value];
+                const nextAnalysis = analysesByKey[value];
                 setSelectedProduct(nextAnalysis.products[0]);
               }}
               allowDeselect={false}

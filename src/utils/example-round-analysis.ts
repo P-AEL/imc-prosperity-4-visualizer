@@ -1,10 +1,3 @@
-import pricesRound1DayMinus2Raw from '../../prices_round_1_day_-2.csv?raw';
-import pricesRound1DayMinus1Raw from '../../prices_round_1_day_-1.csv?raw';
-import pricesRound1Day0Raw from '../../prices_round_1_day_0.csv?raw';
-import tradesRound1DayMinus2Raw from '../../trades_round_1_day_-2.csv?raw';
-import tradesRound1DayMinus1Raw from '../../trades_round_1_day_-1.csv?raw';
-import tradesRound1Day0Raw from '../../trades_round_1_day_0.csv?raw';
-
 export interface ExamplePriceRow {
   day: number;
   timestamp: number;
@@ -68,12 +61,15 @@ export interface ExampleRoundDayAnalysis {
   metricsByProduct: Record<string, ExampleProductMetrics>;
 }
 
+interface ExampleRoundFileSet {
+  day: number;
+  pricesFileName: string;
+  tradesFileName: string;
+}
+
 function parseDelimitedFile<T>(raw: string, parser: (values: string[]) => T): T[] {
   const lines = raw.trim().split(/\r?\n/);
-  return lines
-    .slice(1)
-    .filter(Boolean)
-    .map(line => parser(line.split(';')));
+  return lines.slice(1).filter(Boolean).map(line => parser(line.split(';')));
 }
 
 function parseNumber(value: string): number | null {
@@ -147,11 +143,7 @@ function max(values: number[]): number | null {
   return Math.max(...values);
 }
 
-function buildMetrics(
-  product: string,
-  priceRows: ExamplePriceRow[],
-  tradeRows: ExampleTradeRow[],
-): ExampleProductMetrics {
+function buildMetrics(product: string, priceRows: ExamplePriceRow[], tradeRows: ExampleTradeRow[]): ExampleProductMetrics {
   const midPrices = priceRows.flatMap(row => (row.midPrice === null ? [] : [row.midPrice]));
   const spreads = priceRows.flatMap(row =>
     row.bidPrice1 !== null && row.askPrice1 !== null ? [row.askPrice1 - row.bidPrice1] : [],
@@ -239,17 +231,68 @@ function buildDayAnalysis(round: number, day: number, pricesRaw: string, tradesR
   };
 }
 
-export const EXAMPLE_ROUND_ANALYSES: ExampleRoundDayAnalysis[] = [
-  buildDayAnalysis(1, -2, pricesRound1DayMinus2Raw, tradesRound1DayMinus2Raw),
-  buildDayAnalysis(1, -1, pricesRound1DayMinus1Raw, tradesRound1DayMinus1Raw),
-  buildDayAnalysis(1, 0, pricesRound1Day0Raw, tradesRound1Day0Raw),
+const EXAMPLE_ROUND_FILE_SETS: ExampleRoundFileSet[] = [
+  {
+    day: -2,
+    pricesFileName: 'prices_round_1_day_-2.csv',
+    tradesFileName: 'trades_round_1_day_-2.csv',
+  },
+  {
+    day: -1,
+    pricesFileName: 'prices_round_1_day_-1.csv',
+    tradesFileName: 'trades_round_1_day_-1.csv',
+  },
+  {
+    day: 0,
+    pricesFileName: 'prices_round_1_day_0.csv',
+    tradesFileName: 'trades_round_1_day_0.csv',
+  },
 ];
 
-export const EXAMPLE_ROUND_ANALYSES_BY_KEY = Object.fromEntries(
-  EXAMPLE_ROUND_ANALYSES.map(analysis => [`round-${analysis.round}-day-${analysis.day}`, analysis]),
-) as Record<string, ExampleRoundDayAnalysis>;
+let exampleRoundAnalysesPromise: Promise<ExampleRoundDayAnalysis[]> | null = null;
 
-export const EXAMPLE_ROUND_ANALYSIS_OPTIONS = EXAMPLE_ROUND_ANALYSES.map(analysis => ({
-  value: `round-${analysis.round}-day-${analysis.day}`,
-  label: `Round ${analysis.round} / Day ${analysis.day}`,
-}));
+async function loadTextFile(fileName: string): Promise<string> {
+  const response = await fetch(`${import.meta.env.BASE_URL}${fileName}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to load example dataset: ${fileName}`);
+  }
+
+  return response.text();
+}
+
+export async function loadExampleRoundAnalyses(): Promise<ExampleRoundDayAnalysis[]> {
+  if (exampleRoundAnalysesPromise === null) {
+    exampleRoundAnalysesPromise = Promise.all(
+      EXAMPLE_ROUND_FILE_SETS.map(async fileSet => {
+        const [pricesRaw, tradesRaw] = await Promise.all([
+          loadTextFile(fileSet.pricesFileName),
+          loadTextFile(fileSet.tradesFileName),
+        ]);
+
+        return buildDayAnalysis(1, fileSet.day, pricesRaw, tradesRaw);
+      }),
+    );
+  }
+
+  return exampleRoundAnalysesPromise;
+}
+
+export function getExampleRoundAnalysisKey(round: number, day: number): string {
+  return `round-${round}-day-${day}`;
+}
+
+export function getExampleRoundAnalysisOptions(analyses: ExampleRoundDayAnalysis[]): Array<{ value: string; label: string }> {
+  return analyses.map(analysis => ({
+    value: getExampleRoundAnalysisKey(analysis.round, analysis.day),
+    label: `Round ${analysis.round} / Day ${analysis.day}`,
+  }));
+}
+
+export function getExampleRoundAnalysesByKey(
+  analyses: ExampleRoundDayAnalysis[],
+): Record<string, ExampleRoundDayAnalysis> {
+  return Object.fromEntries(
+    analyses.map(analysis => [getExampleRoundAnalysisKey(analysis.round, analysis.day), analysis]),
+  ) as Record<string, ExampleRoundDayAnalysis>;
+}
