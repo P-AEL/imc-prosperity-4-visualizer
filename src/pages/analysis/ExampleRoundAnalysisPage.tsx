@@ -6,12 +6,14 @@ import { ReactNode, useState } from 'react';
 import { ErrorAlert } from '../../components/ErrorAlert.tsx';
 import { useAsync } from '../../hooks/use-async.ts';
 import {
+  buildAllDaysRoundAnalysis,
   buildRoundDayAnalysis,
   ExampleProductMetrics,
   ExampleRoundDayAnalysis,
   getExampleRoundAnalysisKey,
   getRoundDayFromFileName,
   getRoundDayFromPriceCsv,
+  getRoundTimelineSpan,
 } from '../../utils/example-round-analysis.ts';
 import { formatNumber } from '../../utils/format.ts';
 import { Chart } from '../visualizer/Chart.tsx';
@@ -33,6 +35,15 @@ interface UploadedDayEntry {
   round: number;
   tradesFileName: string | null;
 }
+
+interface AnalysisDataset {
+  analysis: ExampleRoundDayAnalysis;
+  formatTimestamp: (timestamp: number) => string;
+  key: string;
+  label: string;
+}
+
+const ALL_DAYS_DATASET_SUFFIX = 'all-days';
 
 function formatMetric(value: number | null, decimals: number = 2, suffix: string = ''): string {
   if (value === null) {
@@ -161,13 +172,81 @@ function createUploadedDayEntries(
     });
 }
 
-function createDatasetOptions(uploadedDayEntries: UploadedDayEntry[]): Array<{ value: string; label: string }> {
-  return uploadedDayEntries
-    .filter(entry => entry.analysis !== null)
-    .map(entry => ({
-      value: entry.key,
-      label: `Round ${entry.round} / Day ${entry.day}`,
-    }));
+function createDatasetOptions(analysisDatasets: AnalysisDataset[]): Array<{ value: string; label: string }> {
+  return analysisDatasets.map(dataset => ({
+    value: dataset.key,
+    label: dataset.label,
+  }));
+}
+
+function getAllDaysDatasetKey(round: number): string {
+  return `round-${round}-${ALL_DAYS_DATASET_SUFFIX}`;
+}
+
+function createDayTimestampFormatter(): (timestamp: number) => string {
+  return timestamp => formatNumber(timestamp);
+}
+
+function createAllDaysTimestampFormatter(
+  analyses: ExampleRoundDayAnalysis[],
+  timelineSpan: number,
+): (timestamp: number) => string {
+  const sortedDays = [...analyses].sort((a, b) => a.day - b.day).map(analysis => analysis.day);
+
+  return timestamp => {
+    const dayIndex = Math.max(0, Math.min(Math.floor(timestamp / timelineSpan), sortedDays.length - 1));
+    const day = sortedDays[dayIndex];
+    const dayTimestamp = timestamp - dayIndex * timelineSpan;
+
+    return `Day ${day} / ${formatNumber(dayTimestamp)}`;
+  };
+}
+
+function createAnalysisDatasets(uploadedDayEntries: UploadedDayEntry[]): AnalysisDataset[] {
+  const readyEntries = uploadedDayEntries.filter(
+    (entry): entry is UploadedDayEntry & { analysis: ExampleRoundDayAnalysis } => entry.analysis !== null,
+  );
+  const entriesByRound = new Map<number, Array<UploadedDayEntry & { analysis: ExampleRoundDayAnalysis }>>();
+
+  for (const entry of readyEntries) {
+    const currentEntries = entriesByRound.get(entry.round);
+
+    if (currentEntries === undefined) {
+      entriesByRound.set(entry.round, [entry]);
+    } else {
+      currentEntries.push(entry);
+    }
+  }
+
+  return [...entriesByRound.entries()]
+    .sort(([leftRound], [rightRound]) => leftRound - rightRound)
+    .flatMap(([round, entries]) => {
+      const sortedEntries = [...entries].sort((a, b) => a.day - b.day);
+      const datasets: AnalysisDataset[] = [];
+
+      if (sortedEntries.length > 1) {
+        const analyses = sortedEntries.map(entry => entry.analysis);
+        const timelineSpan = getRoundTimelineSpan(analyses);
+
+        datasets.push({
+          analysis: buildAllDaysRoundAnalysis(analyses),
+          formatTimestamp: createAllDaysTimestampFormatter(analyses, timelineSpan),
+          key: getAllDaysDatasetKey(round),
+          label: `Round ${round} / All days`,
+        });
+      }
+
+      datasets.push(
+        ...sortedEntries.map(entry => ({
+          analysis: entry.analysis,
+          formatTimestamp: createDayTimestampFormatter(),
+          key: entry.key,
+          label: `Round ${entry.round} / Day ${entry.day}`,
+        })),
+      );
+
+      return datasets;
+    });
 }
 
 export function ExampleRoundAnalysisPage(): ReactNode {
@@ -247,12 +326,18 @@ export function ExampleRoundAnalysisPage(): ReactNode {
   });
 
   const uploadedDayEntries = createUploadedDayEntries(uploadedPriceFiles, uploadedTradeFiles);
-  const datasetOptions = createDatasetOptions(uploadedDayEntries);
-  const activeDatasetKey = selectedDatasetKey ?? datasetOptions[0]?.value ?? null;
-  const uploadedAnalysesByKey = Object.fromEntries(
-    uploadedDayEntries.flatMap(entry => (entry.analysis === null ? [] : [[entry.key, entry.analysis]])),
-  ) as Record<string, ExampleRoundDayAnalysis>;
-  const analysis = activeDatasetKey === null ? null : (uploadedAnalysesByKey[activeDatasetKey] ?? null);
+  const analysisDatasets = createAnalysisDatasets(uploadedDayEntries);
+  const datasetOptions = createDatasetOptions(analysisDatasets);
+  const analysisDatasetsByKey = Object.fromEntries(analysisDatasets.map(dataset => [dataset.key, dataset])) as Record<
+    string,
+    AnalysisDataset
+  >;
+  const activeDatasetKey =
+    selectedDatasetKey !== null && analysisDatasetsByKey[selectedDatasetKey] !== undefined
+      ? selectedDatasetKey
+      : (datasetOptions[0]?.value ?? null);
+  const activeDataset = activeDatasetKey === null ? null : (analysisDatasetsByKey[activeDatasetKey] ?? null);
+  const analysis = activeDataset?.analysis ?? null;
   const product =
     analysis !== null && selectedProduct !== null && analysis.products.includes(selectedProduct)
       ? selectedProduct
@@ -260,6 +345,7 @@ export function ExampleRoundAnalysisPage(): ReactNode {
   const priceRows = product !== null && analysis !== null ? analysis.priceRowsByProduct[product] : [];
   const tradeRows = product !== null && analysis !== null ? analysis.tradeRowsByProduct[product] : [];
   const metrics = product !== null && analysis !== null ? analysis.metricsByProduct[product] : null;
+  const formatDatasetTimestamp = activeDataset?.formatTimestamp ?? createDayTimestampFormatter();
 
   const priceSeries: Highcharts.SeriesOptionsType[] =
     analysis === null || product === null
@@ -314,9 +400,9 @@ export function ExampleRoundAnalysisPage(): ReactNode {
           },
         ];
 
-  const tradeTableRows = tradeRows.slice(0, 12).map((trade, index) => (
+  const tradeTableRows = tradeRows.slice(-12).map((trade, index) => (
     <Table.Tr key={`${trade.timestamp}-${trade.price}-${index}`}>
-      <Table.Td>{formatNumber(trade.timestamp)}</Table.Td>
+      <Table.Td>{formatDatasetTimestamp(trade.timestamp)}</Table.Td>
       <Table.Td>{formatMetric(trade.price)}</Table.Td>
       <Table.Td>{formatNumber(Math.abs(trade.quantity))}</Table.Td>
       <Table.Td>{trade.currency}</Table.Td>
@@ -416,7 +502,8 @@ export function ExampleRoundAnalysisPage(): ReactNode {
               <Stack>
                 <Text size="sm" c="dimmed">
                   This window shows every round/day found in your uploads. A day becomes selectable once both the
-                  matching price CSV and trade CSV are present.
+                  matching price CSV and trade CSV are present. If a round has multiple ready days, you also get an `All
+                  days` dataset that stitches them together into one continuous timeline.
                 </Text>
 
                 {uploadedDayEntries.some(entry => entry.error !== null) && (
@@ -463,7 +550,7 @@ export function ExampleRoundAnalysisPage(): ReactNode {
 
         {analysis === null || product === null || metrics === null ? (
           <VisualizerCard>
-            <Text>Upload at least one matching pair of price and trade CSVs to start analyzing a day.</Text>
+            <Text>Upload at least one matching pair of price and trade CSVs to start analyzing a dataset.</Text>
           </VisualizerCard>
         ) : (
           <>
@@ -537,7 +624,11 @@ export function ExampleRoundAnalysisPage(): ReactNode {
 
             <Grid>
               <Grid.Col span={{ base: 12, xl: 7 }}>
-                <Chart title={`${product} order book prices`} series={priceSeries} />
+                <Chart
+                  title={`${product} order book prices`}
+                  series={priceSeries}
+                  formatXValue={formatDatasetTimestamp}
+                />
               </Grid.Col>
               <Grid.Col span={{ base: 12, xl: 5 }}>
                 <VisualizerCard title={`${product} trading summary`}>
@@ -567,8 +658,13 @@ export function ExampleRoundAnalysisPage(): ReactNode {
                     <Group justify="space-between">
                       <Text c="dimmed">First / last trade</Text>
                       <Text fw={600}>
-                        {metrics.firstTradeTimestamp === null ? 'N/A' : formatNumber(metrics.firstTradeTimestamp)} /{' '}
-                        {metrics.lastTradeTimestamp === null ? 'N/A' : formatNumber(metrics.lastTradeTimestamp)}
+                        {metrics.firstTradeTimestamp === null
+                          ? 'N/A'
+                          : formatDatasetTimestamp(metrics.firstTradeTimestamp)}{' '}
+                        /{' '}
+                        {metrics.lastTradeTimestamp === null
+                          ? 'N/A'
+                          : formatDatasetTimestamp(metrics.lastTradeTimestamp)}
                       </Text>
                     </Group>
                     <Group justify="space-between">
@@ -583,6 +679,7 @@ export function ExampleRoundAnalysisPage(): ReactNode {
                 <Chart
                   title={`${product} trade prints and size`}
                   series={tradeSeries}
+                  formatXValue={formatDatasetTimestamp}
                   options={{
                     yAxis: [
                       {
@@ -603,7 +700,7 @@ export function ExampleRoundAnalysisPage(): ReactNode {
               <Grid.Col span={{ base: 12, xl: 5 }}>
                 <VisualizerCard title="Recent trades">
                   {tradeTableRows.length === 0 ? (
-                    <Text>No trades recorded for this product/day.</Text>
+                    <Text>No trades recorded for this product in the selected dataset.</Text>
                   ) : (
                     <Table.ScrollContainer minWidth={320}>
                       <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
@@ -623,7 +720,7 @@ export function ExampleRoundAnalysisPage(): ReactNode {
               </Grid.Col>
 
               <Grid.Col span={12}>
-                <VisualizerCard title={`Round ${analysis.round} / Day ${analysis.day} comparison`}>
+                <VisualizerCard title={`${activeDataset?.label ?? `Round ${analysis.round}`} comparison`}>
                   <Table.ScrollContainer minWidth={720}>
                     <Table withColumnBorders horizontalSpacing={8} verticalSpacing={4}>
                       <Table.Thead>

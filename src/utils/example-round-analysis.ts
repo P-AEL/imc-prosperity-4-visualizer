@@ -19,6 +19,7 @@ export interface ExamplePriceRow {
 }
 
 export interface ExampleTradeRow {
+  day: number;
   timestamp: number;
   buyer: string;
   seller: string;
@@ -72,6 +73,8 @@ interface ExampleRoundFileSet {
   tradesFileName: string;
 }
 
+const DEFAULT_TIMELINE_STEP = 100;
+
 function parseDelimitedFile<T>(raw: string, parser: (values: string[]) => T): T[] {
   const lines = raw.trim().split(/\r?\n/);
   return lines
@@ -118,8 +121,9 @@ function parsePriceRows(raw: string): ExamplePriceRow[] {
   });
 }
 
-function parseTradeRows(raw: string): ExampleTradeRow[] {
+function parseTradeRows(raw: string, day: number): ExampleTradeRow[] {
   return parseDelimitedFile(raw, values => ({
+    day,
     timestamp: Number(values[0]),
     buyer: values[1],
     seller: values[2],
@@ -223,7 +227,7 @@ export function buildRoundDayAnalysis(
   tradesRaw: string,
 ): ExampleRoundDayAnalysis {
   const priceRows = parsePriceRows(pricesRaw);
-  const tradeRows = parseTradeRows(tradesRaw);
+  const tradeRows = parseTradeRows(tradesRaw, day);
   const productSet = new Set<string>();
 
   for (const row of priceRows) {
@@ -248,6 +252,111 @@ export function buildRoundDayAnalysis(
   return {
     round,
     day,
+    products,
+    priceRowsByProduct,
+    tradeRowsByProduct,
+    metricsByProduct,
+  };
+}
+
+function getSortedUniqueTimestamps(analyses: ExampleRoundDayAnalysis[]): number[] {
+  const timestamps = new Set<number>();
+
+  for (const analysis of analyses) {
+    for (const rows of Object.values(analysis.priceRowsByProduct)) {
+      for (const row of rows) {
+        timestamps.add(row.timestamp);
+      }
+    }
+
+    for (const rows of Object.values(analysis.tradeRowsByProduct)) {
+      for (const row of rows) {
+        timestamps.add(row.timestamp);
+      }
+    }
+  }
+
+  return [...timestamps].sort((a, b) => a - b);
+}
+
+export function getRoundTimelineSpan(analyses: ExampleRoundDayAnalysis[]): number {
+  const timestamps = getSortedUniqueTimestamps(analyses);
+
+  if (timestamps.length === 0) {
+    return DEFAULT_TIMELINE_STEP;
+  }
+
+  if (timestamps.length === 1) {
+    return timestamps[0] + DEFAULT_TIMELINE_STEP;
+  }
+
+  let minStep = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < timestamps.length; i++) {
+    const step = timestamps[i] - timestamps[i - 1];
+
+    if (step > 0) {
+      minStep = Math.min(minStep, step);
+    }
+  }
+
+  return timestamps[timestamps.length - 1] + (Number.isFinite(minStep) ? minStep : DEFAULT_TIMELINE_STEP);
+}
+
+export function buildAllDaysRoundAnalysis(analyses: ExampleRoundDayAnalysis[]): ExampleRoundDayAnalysis {
+  const sortedAnalyses = [...analyses].sort((a, b) => a.day - b.day);
+
+  if (sortedAnalyses.length === 0) {
+    throw new Error('Cannot build an all-days analysis without any day analyses.');
+  }
+
+  const round = sortedAnalyses[0].round;
+  const timelineSpan = getRoundTimelineSpan(sortedAnalyses);
+  const productSet = new Set<string>();
+
+  for (const analysis of sortedAnalyses) {
+    for (const product of analysis.products) {
+      productSet.add(product);
+    }
+  }
+
+  const products = [...productSet].sort((a, b) => a.localeCompare(b));
+  const priceRowsByProduct: Record<string, ExamplePriceRow[]> = {};
+  const tradeRowsByProduct: Record<string, ExampleTradeRow[]> = {};
+  const metricsByProduct: Record<string, ExampleProductMetrics> = {};
+
+  for (const product of products) {
+    const combinedPriceRows: ExamplePriceRow[] = [];
+    const combinedTradeRows: ExampleTradeRow[] = [];
+
+    sortedAnalyses.forEach((analysis, index) => {
+      const timestampOffset = index * timelineSpan;
+
+      combinedPriceRows.push(
+        ...(analysis.priceRowsByProduct[product] ?? []).map(row => ({
+          ...row,
+          timestamp: row.timestamp + timestampOffset,
+        })),
+      );
+
+      combinedTradeRows.push(
+        ...(analysis.tradeRowsByProduct[product] ?? []).map(row => ({
+          ...row,
+          timestamp: row.timestamp + timestampOffset,
+        })),
+      );
+    });
+
+    combinedPriceRows.sort((a, b) => a.timestamp - b.timestamp);
+    combinedTradeRows.sort((a, b) => a.timestamp - b.timestamp);
+
+    priceRowsByProduct[product] = combinedPriceRows;
+    tradeRowsByProduct[product] = combinedTradeRows;
+    metricsByProduct[product] = buildMetrics(product, combinedPriceRows, combinedTradeRows);
+  }
+
+  return {
+    round,
+    day: sortedAnalyses[0].day,
     products,
     priceRowsByProduct,
     tradeRowsByProduct,
