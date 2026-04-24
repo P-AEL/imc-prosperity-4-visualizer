@@ -126,7 +126,8 @@ export function Chart({ title, options, series, min, max, formatXValue }: ChartP
           width: 1,
         },
         labels: {
-          formatter: params => (formatXValue ? formatXValue(params.value as number) : formatNumber(params.value as number)),
+          formatter: params =>
+            formatXValue ? formatXValue(params.value as number) : formatNumber(params.value as number),
         },
       },
       yAxis: {

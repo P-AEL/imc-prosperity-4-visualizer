@@ -124,7 +124,9 @@ export function VisualizerPage(): ReactNode {
           <VisualizerCard>
             <Group justify="space-between" align="end">
               <Stack gap={4}>
-                <Text c="dimmed">{roundLabel === null ? performanceScopeLabel : `${roundLabel} / ${performanceScopeLabel}`}</Text>
+                <Text c="dimmed">
+                  {roundLabel === null ? performanceScopeLabel : `${roundLabel} / ${performanceScopeLabel}`}
+                </Text>
                 <Title order={2}>Final Profit / Loss: {formatNumber(finalProfitLoss)}</Title>
               </Stack>
               <Select

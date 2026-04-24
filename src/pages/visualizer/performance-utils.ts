@@ -51,7 +51,9 @@ export function getAvailablePerformanceDays(activityLogs: ActivityLogRow[]): num
   return [...new Set(activityLogs.map(row => row.day))].sort((a, b) => a - b);
 }
 
-export function getPerformanceDaySelectOptions(activityLogs: ActivityLogRow[]): Array<{ value: string; label: string }> {
+export function getPerformanceDaySelectOptions(
+  activityLogs: ActivityLogRow[],
+): Array<{ value: string; label: string }> {
   const days = getAvailablePerformanceDays(activityLogs);
 
   return [
