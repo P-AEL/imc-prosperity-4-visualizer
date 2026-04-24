@@ -48,9 +48,10 @@ interface ChartProps {
   series: Highcharts.SeriesOptionsType[];
   min?: number;
   max?: number;
+  formatXValue?: (value: number) => string;
 }
 
-export function Chart({ title, options, series, min, max }: ChartProps): ReactNode {
+export function Chart({ title, options, series, min, max, formatXValue }: ChartProps): ReactNode {
   const colorScheme = useActualColorScheme();
 
   const fullOptions = useMemo((): Highcharts.Options => {
@@ -86,7 +87,7 @@ export function Chart({ title, options, series, min, max }: ChartProps): ReactNo
                 }
               }
 
-              e.text = `Timestamp ${formatNumber(timestamp)}<br/>`;
+              e.text = `${formatXValue ? formatXValue(timestamp) : `Timestamp ${formatNumber(timestamp)}`}<br/>`;
               return false;
             });
           },
@@ -125,7 +126,7 @@ export function Chart({ title, options, series, min, max }: ChartProps): ReactNo
           width: 1,
         },
         labels: {
-          formatter: params => formatNumber(params.value as number),
+          formatter: params => (formatXValue ? formatXValue(params.value as number) : formatNumber(params.value as number)),
         },
       },
       yAxis: {
@@ -156,7 +157,7 @@ export function Chart({ title, options, series, min, max }: ChartProps): ReactNo
     };
 
     return merge(themeOptions, chartOptions);
-  }, [colorScheme, title, options, series, min, max]);
+  }, [colorScheme, title, options, series, min, max, formatXValue]);
 
   return (
     <VisualizerCard p={0}>

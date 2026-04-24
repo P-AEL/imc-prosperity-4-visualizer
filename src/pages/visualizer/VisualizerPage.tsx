@@ -1,11 +1,19 @@
-import { Center, Container, Grid, Title } from '@mantine/core';
-import { ReactNode } from 'react';
+import { Container, Grid, Group, Select, Stack, Text, Title } from '@mantine/core';
+import { ReactNode, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useStore } from '../../store.ts';
 import { formatNumber } from '../../utils/format.ts';
 import { AlgorithmSummaryCard } from './AlgorithmSummaryCard.tsx';
 import { ConversionPriceChart } from './ConversionPriceChart.tsx';
 import { EnvironmentChart } from './EnvironmentChart.tsx';
+import {
+  ALL_DAYS_SELECT_VALUE,
+  formatRoundLabel,
+  getAvailablePerformanceDays,
+  getFinalProfitLoss,
+  getPerformanceDaySelectOptions,
+  getPerformanceScopeLabel,
+} from './performance-utils.ts';
 import { PlainValueObservationChart } from './PlainValueObservationChart.tsx';
 import { PositionChart } from './PositionChart.tsx';
 import { ProductPriceChart } from './ProductPriceChart.tsx';
@@ -19,22 +27,29 @@ export function VisualizerPage(): ReactNode {
   const algorithm = useStore(state => state.algorithm);
 
   const { search } = useLocation();
+  const [selectedPerformanceDayValue, setSelectedPerformanceDayValue] = useState<string>(ALL_DAYS_SELECT_VALUE);
 
   if (algorithm === null) {
     return <Navigate to={`/${search}`} />;
   }
+
+  const performanceDayOptions = getPerformanceDaySelectOptions(algorithm.activityLogs);
+  const selectedPerformanceDay =
+    selectedPerformanceDayValue === ALL_DAYS_SELECT_VALUE ? null : Number(selectedPerformanceDayValue);
+  const availablePerformanceDays = getAvailablePerformanceDays(algorithm.activityLogs);
+  const activePerformanceDay =
+    selectedPerformanceDay === null || availablePerformanceDays.includes(selectedPerformanceDay)
+      ? selectedPerformanceDay
+      : null;
+  const performanceScopeLabel = getPerformanceScopeLabel(activePerformanceDay);
+  const roundLabel = formatRoundLabel(algorithm.summary?.round);
+  const finalProfitLoss = getFinalProfitLoss(algorithm.activityLogs, activePerformanceDay);
 
   const conversionProducts = new Set();
   for (const row of algorithm.data) {
     for (const product of Object.keys(row.state.observations.conversionObservations)) {
       conversionProducts.add(product);
     }
-  }
-
-  let profitLoss = 0;
-  const lastTimestamp = algorithm.activityLogs[algorithm.activityLogs.length - 1].timestamp;
-  for (let i = algorithm.activityLogs.length - 1; i >= 0 && algorithm.activityLogs[i].timestamp == lastTimestamp; i--) {
-    profitLoss += algorithm.activityLogs[i].profitLoss;
   }
 
   const symbols = new Set<string>();
@@ -107,13 +122,32 @@ export function VisualizerPage(): ReactNode {
       <Grid>
         <Grid.Col span={12}>
           <VisualizerCard>
-            <Center>
-              <Title order={2}>Final Profit / Loss: {formatNumber(profitLoss)}</Title>
-            </Center>
+            <Group justify="space-between" align="end">
+              <Stack gap={4}>
+                <Text c="dimmed">{roundLabel === null ? performanceScopeLabel : `${roundLabel} / ${performanceScopeLabel}`}</Text>
+                <Title order={2}>Final Profit / Loss: {formatNumber(finalProfitLoss)}</Title>
+              </Stack>
+              <Select
+                allowDeselect={false}
+                data={performanceDayOptions}
+                label="Performance range"
+                value={activePerformanceDay === null ? ALL_DAYS_SELECT_VALUE : String(activePerformanceDay)}
+                onChange={value => {
+                  if (value !== null) {
+                    setSelectedPerformanceDayValue(value);
+                  }
+                }}
+                w={220}
+              />
+            </Group>
           </VisualizerCard>
         </Grid.Col>
         <Grid.Col span={{ xs: 12, sm: 6 }}>
-          <ProfitLossChart symbols={sortedSymbols} />
+          <ProfitLossChart
+            symbols={sortedSymbols}
+            activityLogs={algorithm.activityLogs}
+            selectedDay={activePerformanceDay}
+          />
         </Grid.Col>
         <Grid.Col span={{ xs: 12, sm: 6 }}>
           <PositionChart symbols={sortedSymbols} />
